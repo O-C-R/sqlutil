@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/O-C-R/auth/id"
+	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 )
 
@@ -41,6 +42,11 @@ type TestSerialValue struct {
 	ID        *int    `db:"id"`
 	UniqueKey string  `db:"unique_key"`
 	Value     *string `db:"value"`
+}
+
+func init() {
+	Register(TestValue{}, "test")
+	Register(TestSerialValue{}, "test_serial")
 }
 
 func testDB(t *testing.T, test func(*sql.DB) error) {
@@ -228,6 +234,63 @@ func TestUpsertFunc(t *testing.T) {
 
 		if id1 != returnedID2 {
 			return fmt.Errorf("%s != %s", id1, returnedID2)
+		}
+
+		return nil
+	})
+}
+
+func TestUpdateFunc(t *testing.T) {
+	testDB(t, func(db *sql.DB) error {
+		dbx := sqlx.NewDb(db, "postgresql")
+
+		insertFunc, err := InsertFunc(db, TestValue{}, "test")
+		if err != nil {
+			return err
+		}
+
+		testValue := TestValue{}
+
+		id1, err := id.New()
+		if err != nil {
+			return err
+		}
+
+		testValue.ID = id1
+		testValue.UniqueKey = "id1"
+		_, err = insertFunc(testValue)
+		if err != nil {
+			panic(err)
+		}
+
+		updateFunc, err := UpdateFunc(db, TestValue{}, "test", "id")
+		if err != nil {
+			panic(err)
+		}
+
+		testValue.UniqueKey = "id2"
+		_, err = updateFunc(testValue)
+		if err != nil {
+			panic(err)
+		}
+
+		selectStmt, err := Select(TestValue{}, nil, `WHERE id = $1`)
+		if err != nil {
+			panic(err)
+		}
+
+		selectPrep, err := dbx.Preparex(selectStmt)
+		if err != nil {
+			return err
+		}
+
+		testValue2 := TestValue{}
+		if err := selectPrep.Get(&testValue2, &id1); err != nil {
+			panic(err)
+		}
+
+		if testValue2.UniqueKey != "id2" {
+			return fmt.Errorf("Got unexpected unique_key %s", testValue2.UniqueKey)
 		}
 
 		return nil
